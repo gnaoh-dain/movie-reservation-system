@@ -5,6 +5,7 @@ const parsed = z
   .object({
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
     PORT: z.coerce.number().int().positive().default(3000),
+    APP_URL: z.url().optional(),
 
     DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
     REDIS_URL: z.url({ protocol: /^redis$/ }).default('redis://localhost:6379'),
@@ -31,6 +32,7 @@ const { data } = parsed;
 export const env = {
   nodeEnv: data.NODE_ENV,
   port: data.PORT,
+  appUrl: (data.APP_URL ?? `http://localhost:${data.PORT}`).replace(/\/+$/, ''),
   databaseUrl: data.DATABASE_URL,
   redisUrl: data.REDIS_URL,
   jwtSecret: data.JWT_SECRET,

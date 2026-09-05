@@ -1,15 +1,20 @@
 import fs from 'node:fs/promises';
 import multer from 'multer';
-import type { ErrorRequestHandler } from 'express';
+import type { ErrorRequestHandler, RequestHandler } from 'express';
 import { ZodError } from 'zod';
 import { Prisma } from '../generated/prisma/client';
 
-export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
-  console.error(err);
+export const cleanupUploads: RequestHandler = (req, res, next) => {
+  res.on('finish', () => {
+    if (res.statusCode < 400) return;
+    const uploaded = req.file ? [req.file] : Object.values(req.files ?? {}).flat();
+    for (const file of uploaded) fs.unlink(file.path).catch(() => {});
+  });
+  next();
+};
 
-  // request lỗi thì file multer đã ghi ra đĩa là rác, xoá đi
-  const uploaded = req.file ? [req.file] : Object.values(req.files ?? {}).flat();
-  for (const file of uploaded) fs.unlink(file.path).catch(() => {});
+export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
+  console.error(err);
 
   if (err instanceof multer.MulterError) return res.status(400).json({ error: 'UploadError', message: err.message });
   if (err instanceof ZodError) return res.status(400).json({ error: 'ValidationError', issues: err.issues });

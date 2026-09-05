@@ -1,10 +1,9 @@
 import express from 'express';
 import router from './routes/index';
 import { logger } from './configs/logger';
-import { errorHandler } from './middlewares/error';
+import { errorHandler, cleanupUploads } from './middlewares/error';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
-import { env } from './configs/env';
 
 export const app = express();
 
@@ -14,7 +13,7 @@ app.use(cookieParser());
 app.use(logger());
 app.use(express.json());
 
-app.use('/uploads', express.static(env.upload.dir));
+app.use(cleanupUploads);
 app.use('/api', router);
 
 app.get('/health', (_req, res) => {

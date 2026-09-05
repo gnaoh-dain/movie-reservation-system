@@ -18,9 +18,7 @@ const createMovieBody = z.object({
   genreId: z.uuid({ message: 'Invalid genre ID' }),
 });
 
-const updateMovieBody = createMovieBody.partial().refine((data) => Object.keys(data).length > 0, {
-  message: 'At least one field is required',
-});
+const updateMovieBody = createMovieBody.partial();
 
 type ListMoviesQuery = NoUndefined<z.infer<typeof listMoviesQuery>>;
 type CreateMovieInput = NoUndefined<z.infer<typeof createMovieBody>>;

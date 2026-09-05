@@ -25,7 +25,7 @@ CREATE TABLE "Movie" (
     "id" UUID NOT NULL,
     "title" TEXT NOT NULL,
     "description" TEXT NOT NULL,
-    "posterUrl" TEXT,
+    "posterImageId" TEXT,
     "genreId" UUID NOT NULL,
 
     CONSTRAINT "Movie_pkey" PRIMARY KEY ("id")

@@ -28,13 +28,16 @@ model Genre {
 }
 
 model Movie {
-  id          String     @id @default(uuid(7)) @db.Uuid
-  title       String
-  description String
-  posterUrl   String?
-  genreId     String     @db.Uuid
-  genre       Genre      @relation(fields: [genreId], references: [id])
-  showtimes   Showtime[]
+  id            String     @id @default(uuid(7)) @db.Uuid
+  title         String
+  description   String
+  posterImageId String?
+  genreId       String     @db.Uuid
+  genre         Genre      @relation(fields: [genreId], references: [id])
+  showtimes     Showtime[]
+  deletedAt     DateTime?
+
+  @@index([deletedAt])
 }
 
 model Theater {

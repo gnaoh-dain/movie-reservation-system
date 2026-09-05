@@ -1,6 +1,8 @@
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../src/generated/prisma/client';
 import { env } from '../src/configs/env';
+import { hashPassword } from '../src/utils/hash';
+import { Role } from '../src/generated/prisma/enums';
 
 const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: env.databaseUrl }),
@@ -70,7 +72,26 @@ const movies = [
   },
 ];
 
+const DEV_PASSWORD = 'Password123!';
+
+const users = [
+  { email: 'admin@movie.local', role: Role.ADMIN },
+  { email: 'staff@movie.local', role: Role.ADMIN },
+  { email: 'user@movie.local', role: Role.USER },
+  { email: 'user2@movie.local', role: Role.USER },
+];
+
+async function seedUsers() {
+  const passwordHash = await hashPassword(DEV_PASSWORD);
+  for (const { email, role } of users) {
+    await prisma.user.upsert({ where: { email }, update: { role }, create: { email, passwordHash, role } });
+  }
+  console.log(`Seeded ${users.length} users (password: ${DEV_PASSWORD}).`);
+}
+
 async function main() {
+  await seedUsers();
+
   const genreIds = new Map<string, string>();
   for (const name of new Set(movies.map((m) => m.genre))) {
     const genre = await prisma.genre.upsert({ where: { name }, update: {}, create: { name } });
@@ -87,7 +108,6 @@ async function main() {
     data: movies.map((m) => ({
       title: m.title,
       description: `${m.description} (${m.year})`,
-      posterUrl: `https://placehold.co/300x450?text=${encodeURIComponent(m.title)}`,
       genreId: genreIds.get(m.genre)!,
     })),
   });

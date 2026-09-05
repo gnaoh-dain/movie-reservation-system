@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth, requireRole } from '../middlewares/auth.middleware';
 import { Role } from '../generated/prisma/enums';
 import { validate } from '../middlewares/validations';
-import { upload, publicUri } from '../configs/upload';
+import { upload } from '../configs/upload';
 import {
   movieParams,
   listMoviesQuery,
@@ -35,10 +35,9 @@ router.post(
     const filename = req.file && req.file.filename;
     if (!filename) return res.status(400).json({ error: 'Poster image is required' });
 
-    const postUrl = `${req.protocol}://${req.get('host')}/api/${publicUri(filename)}`;
     const data = await createMovie({
       ...req.body,
-      posterUrl: postUrl,
+      posterImageId: filename,
     });
     return res.status(201).json({ message: 'Movie created successfully', data });
   },
@@ -48,15 +47,24 @@ router.put(
   '/:id',
   requireAuth,
   requireRole(Role.ADMIN),
+  upload.single('poster'),
   validate({ params: movieParams, body: updateMovieBody }),
   async (req, res) => {
-    const data = await updateMovie(req.params.id, req.body);
+    if (!req.file && Object.keys(req.body).length === 0) {
+      return res.status(400).json({ error: 'At least one field or a poster is required' });
+    }
+
+    const data = await updateMovie(req.params.id, req.body, req.file?.filename);
+    if (!data) return res.status(404).json({ error: 'MovieNotFound' });
+
     return res.status(200).json({ message: 'Movie updated successfully', data });
   },
 );
 
 router.delete('/:id', requireAuth, requireRole(Role.ADMIN), validate({ params: movieParams }), async (req, res) => {
   const data = await deleteMovie(req.params.id);
+  if (!data) return res.status(404).json({ error: 'MovieNotFound' });
+
   return res.status(200).json({ message: 'Movie deleted successfully', data });
 });
 

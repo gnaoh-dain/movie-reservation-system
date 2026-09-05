@@ -33,33 +33,36 @@ Check: `curl localhost:4000/health` → `{"ok":true}`
 ## Layout
 
 ```
-prisma/
-├── schema.prisma          data model
-├── migrations/            generated SQL migrations
-└── seed.ts                genres + 10 movies
-prisma.config.ts           datasource URL + seed command (Prisma 7 ignores url in the schema)
-docker-compose.yml         PostgreSQL 5433, Redis 6379
-src/
-├── server.ts              connect Redis, then listen
-├── app.ts                 express: logger → json → /api routes → error handler
-├── configs/               things wired once at startup
-│   ├── env.ts             environment variables validated with zod
-│   ├── db.ts              PrismaClient + pg adapter
-│   ├── logger.ts          morgan
-│   └── redis.ts           Redis client
-├── constants/             shared literals (see below)
-├── middlewares/
-│   ├── auth.middleware.ts requireAuth → req.user
-│   └── error.ts           the last app.use(), maps errors to JSON
-├── routes/
-│   ├── index.ts           mounts every feature router under /api
-│   ├── auth.route.ts      register, login
-│   └── movie.route.ts     movies
-├── utils/
-│   ├── jwt.ts             signToken / verifyToken
-│   └── hash.ts            bcrypt hash / compare
-├── types/express.d.ts     Request.user typing
-└── generated/prisma/      Prisma Client (gitignored)
+|── src/
+|  ├── server.ts              connect Redis, then listen
+|  ├── app.ts                 express: logger → json → /api routes → error handler
+|  ├── configs/               things wired once at startup
+|  │   ├── env.ts             environment variables validated with zod
+|  │   ├── db.ts              PrismaClient + pg adapter
+|  │   ├── logger.ts          morgan
+|  │   └── redis.ts           Redis client
+|  ├── constants/             shared literals (see below)
+|  ├── middlewares/
+|  │   ├── auth.middleware.ts requireAuth → req.user
+|  │   └── error.ts           the last app.use(), maps errors to JSON
+|  ├── routes/
+|  │   ├── index.ts           mounts every feature router under /api
+|  │   ├── auth.route.ts      register, login
+|  │   └── movie.route.ts     movies
+|  ├── utils/
+|  │   ├── jwt.ts             signToken / verifyToken
+|  │   └── hash.ts            bcrypt hash / compare
+|  ├── types/express.d.ts     Request.user typing
+|  └── generated/prisma/      Prisma Client (gitignored)
+
+|── uploads/                  file upload
+|── prisma/
+|  ├── schema.prisma          data model
+|  ├── migrations/            generated SQL migrations
+|  └── seed.ts                genres + 10 movies
+|── prisma.config.ts          datasource URL + seed command (Prisma 7 ignores url in the schema)
+|── docker-compose.yml        PostgreSQL 5433, Redis 6379
+
 ```
 
 ### Where constants go
@@ -88,12 +91,3 @@ rejects two concurrent requests for the same seat, so no application-level locki
 | `REDIS_URL`    | Redis connection string (defaults to `redis://localhost:6379`) |
 | `JWT_SECRET`   | JWT signing key                                                |
 | `PORT`         | HTTP port (defaults to 3000, `.env` currently uses 4000)       |
-
-## Progress
-
-- [x] Setup: TypeScript, Express, Prisma, Zod, JWT deps, data model
-- [ ] Auth: signup / login, role middleware
-- [ ] Movie CRUD (admin only)
-- [ ] Showtimes by date, seat availability
-- [ ] Reserve / cancel tickets (upcoming showtimes only)
-- [ ] Admin reports: revenue, capacity
