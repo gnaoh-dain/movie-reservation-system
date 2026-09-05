@@ -1,5 +1,9 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import multer from 'multer';
 import { env } from './env';
+
+fs.mkdirSync(env.upload.dir, { recursive: true });
 
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -7,7 +11,12 @@ const storage = multer.diskStorage({
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + '-' + file.originalname);
+    const ext = path
+      .extname(file.originalname)
+      .toLowerCase()
+      .replace(/[^.a-z0-9]/g, '');
+    const _filename = file.fieldname + '-' + uniqueSuffix + ext;
+    cb(null, _filename);
   },
 });
 
@@ -16,10 +25,14 @@ const upload = multer({
   limits: { fileSize: env.upload.maxFileSize },
   fileFilter: function (req, file, cb) {
     if (!env.upload.allowedFileTypes.includes(file.mimetype)) {
-      return cb(new Error('Only the following file types are allowed: ' + env.upload.allowedFileTypes.join(', ')));
+      const error = new multer.MulterError('LIMIT_UNEXPECTED_FILE', file.fieldname);
+      error.message = 'Only the following file types are allowed: ' + env.upload.allowedFileTypes.join(', ');
+      return cb(error);
     }
     cb(null, true);
   },
 });
+
+export const publicUri = (filename: string) => `image/${filename}`;
 
 export { upload };

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAuth, requireRole } from '../middlewares/auth.middleware';
 import { Role } from '../generated/prisma/enums';
 import { validate } from '../middlewares/validations';
+import { upload, publicUri } from '../configs/upload';
 import {
   movieParams,
   listMoviesQuery,
@@ -24,10 +25,24 @@ router.get('/:id', requireAuth, requireRole(Role.ADMIN), validate({ params: movi
   return res.status(200).json({ message: 'Movie fetched successfully', data });
 });
 
-router.post('/', requireAuth, requireRole(Role.ADMIN), validate({ body: createMovieBody }), async (req, res) => {
-  const data = await createMovie(req.body);
-  return res.status(201).json({ message: 'Movie created successfully', data });
-});
+router.post(
+  '/',
+  requireAuth,
+  requireRole(Role.ADMIN),
+  upload.single('poster'),
+  validate({ body: createMovieBody }),
+  async (req, res) => {
+    const filename = req.file && req.file.filename;
+    if (!filename) return res.status(400).json({ error: 'Poster image is required' });
+
+    const postUrl = `${req.protocol}://${req.get('host')}/api/${publicUri(filename)}`;
+    const data = await createMovie({
+      ...req.body,
+      posterUrl: postUrl,
+    });
+    return res.status(201).json({ message: 'Movie created successfully', data });
+  },
+);
 
 router.put(
   '/:id',

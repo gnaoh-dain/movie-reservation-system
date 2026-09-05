@@ -26,9 +26,6 @@ export const validate =
       if (schema.params) req.params = schema.params.parse(req.params) as any;
       next();
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: 'ValidationError', issues: error.issues });
-      }
       return next(error);
     }
   };

@@ -3,6 +3,8 @@ import type { ListMoviesQuery, CreateMovieInput, UpdateMovieInput } from '../mid
 
 const include = { genre: true } as const;
 
+type CreateMovieData = CreateMovieInput & { posterUrl: string | null };
+
 export const listMovies = async ({ page, limit, genreId, search }: ListMoviesQuery) => {
   const where = {
     ...(genreId ? { genreId } : {}),
@@ -19,7 +21,7 @@ export const listMovies = async ({ page, limit, genreId, search }: ListMoviesQue
 
 export const getMovieById = (id: string) => prisma.movie.findUnique({ where: { id }, include });
 
-export const createMovie = (data: CreateMovieInput) => prisma.movie.create({ data, include });
+export const createMovie = (data: CreateMovieData) => prisma.movie.create({ data, include });
 
 export const updateMovie = (id: string, data: UpdateMovieInput) =>
   prisma.movie.update({ where: { id }, data, include });

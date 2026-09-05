@@ -15,7 +15,6 @@ const listMoviesQuery = z.object({
 const createMovieBody = z.object({
   title: z.string().trim().min(1, { message: 'Title is required' }),
   description: z.string().trim().min(1, { message: 'Description is required' }),
-  posterUrl: z.url({ message: 'Invalid poster URL' }).nullish(),
   genreId: z.uuid({ message: 'Invalid genre ID' }),
 });
 
