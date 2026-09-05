@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import { prisma } from '../configs/db';
-import { hashPassword, verifyPassword } from '../utils/hash';
+import { verifyPassword } from '../utils/hash';
+import { findUserByEmail, createUser } from '../services/auth.service';
 import { signToken } from '../utils/jwt';
 
 const router = Router();
@@ -16,20 +16,15 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'Passwords do not match' });
     }
 
-    const existingUser = await prisma.user.findUnique({ where: { email } });
+    const existingUser = await findUserByEmail(email);
 
     if (existingUser) {
       return res.status(400).json({ error: 'User already exists' });
     }
 
-    const passwordHash = await hashPassword(password);
-    const createdUser = await prisma.user.create({
-      data: { email, passwordHash },
-    });
+    const data = await createUser(email, password);
 
-    const { passwordHash: _, ...userWithoutPassword } = createdUser;
-
-    return res.status(200).json({ message: 'User registered successfully', user: userWithoutPassword });
+    return res.status(201).json({ message: 'User registered successfully', data });
   } catch (error) {
     console.error(error);
     throw error;
@@ -43,7 +38,7 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Missing email or password' });
     }
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await findUserByEmail(email);
     if (!user) return res.status(401).json({ error: 'Invalid email or password' });
 
     const isMatchingPassword = await verifyPassword(password, user?.passwordHash);
@@ -57,7 +52,7 @@ router.post('/login', async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 
-    return res.status(200).json({ message: 'Login successful' });
+    return res.status(200).json({ message: 'Login successful', data: null });
   } catch (error) {
     console.error(error);
     throw error;
@@ -70,7 +65,7 @@ router.post('/logout', (req, res) => {
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict',
   });
-  return res.status(200).json({ message: 'Logout successful' });
+  return res.status(200).json({ message: 'Logout successful', data: null });
 });
 
 export default router;
