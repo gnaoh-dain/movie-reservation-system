@@ -2,12 +2,17 @@ openapi: 3.0.3
 info:
   title: Movie Reservation System
   version: 1.0.0
+  description: |
+    Every successful response has the shape `{ message, data }`.
+    Every error response has the shape `{ error, message? }` — `error` is a stable error code, `message` only appears when extra explanation is needed.
 servers:
   - url: http://localhost:4000
 tags:
   - name: Auth
   - name: Movies
   - name: Genres
+  - name: Theaters
+  - name: Showtimes
   - name: Misc
 
 components:
@@ -16,6 +21,7 @@ components:
       type: apiKey
       in: cookie
       name: accessToken
+
   schemas:
     Genre:
       type: object
@@ -23,6 +29,7 @@ components:
         id: { type: string, format: uuid }
         name: { type: string, example: Sci-Fi }
         deletedAt: { type: string, format: date-time, nullable: true }
+
     Movie:
       type: object
       properties:
@@ -30,13 +37,99 @@ components:
         title: { type: string, example: Blade Runner 2049 }
         description: { type: string }
         posterImageId: { type: string, nullable: true }
+        posterUrl:
+          type: string
+          nullable: true
+          description: Full image URL derived from posterImageId
+          example: http://localhost:4000/api/image/poster-1234567890-123456789.jpg
         genreId: { type: string, format: uuid }
         genre: { $ref: '#/components/schemas/Genre' }
         deletedAt: { type: string, format: date-time, nullable: true }
+
+    Theater:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, example: Cinema 1 }
+
+    Seat:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        theaterId: { type: string, format: uuid }
+        row: { type: string, example: A }
+        number: { type: integer, example: 7 }
+        type: { type: string, enum: [REGULAR, VIP] }
+
+    Showtime:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        movieId: { type: string, format: uuid }
+        theaterId: { type: string, format: uuid }
+        startsAt: { type: string, format: date-time }
+        price:
+          type: string
+          description: Decimal(10,2), serialized as a string
+          example: '95000'
+        movie:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            title: { type: string }
+        theater:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+
+    Pagination:
+      type: object
+      properties:
+        page: { type: integer, example: 1 }
+        limit: { type: integer, example: 20 }
+        total: { type: integer, example: 42 }
+        totalPages: { type: integer, example: 3 }
+
     Error:
       type: object
       properties:
-        error: { type: string }
+        error: { type: string, description: Stable error code, example: GenreNotFound }
+        message: { type: string, description: Only present when extra explanation is needed }
+
+    ValidationError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            issues:
+              type: array
+              description: Zod issue list, only present when error is ValidationError
+              items: { type: object }
+
+  responses:
+    BadRequest:
+      description: Invalid input
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ValidationError' }
+    Unauthorized:
+      description: Missing cookie, invalid token, or a token revoked by logout
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: Unauthorized }
+    Forbidden:
+      description: Authenticated but not an ADMIN
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: Forbidden }
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
 
 security:
   - cookieAuth: []
@@ -48,7 +141,14 @@ paths:
       summary: Health check
       security: []
       responses:
-        '200': { description: OK }
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
 
   /api/auth/register:
     post:
@@ -64,16 +164,37 @@ paths:
               required: [email, password, confirmPassword]
               properties:
                 email: { type: string, format: email, example: newuser@movie.local }
-                password: { type: string, example: Password123! }
-                confirmPassword: { type: string, example: Password123! }
+                password: { type: string, minLength: 6, example: Password123! }
+                confirmPassword: { type: string, minLength: 6, example: Password123! }
       responses:
-        '201': { description: Created }
-        '400': { description: Bad request, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '201':
+          description: Registered (the response never includes passwordHash)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data:
+                    type: object
+                    properties:
+                      id: { type: string, format: uuid }
+                      email: { type: string, format: email }
+                      role: { type: string, enum: [USER, ADMIN] }
+                      createdAt: { type: string, format: date-time }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409':
+          description: Email already taken
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: UserAlreadyExists }
 
   /api/auth/login:
     post:
       tags: [Auth]
-      summary: Login (sets httpOnly accessToken cookie)
+      summary: Log in — sets the httpOnly `accessToken` cookie (7 days)
+      description: Limited to 5 requests per 15 minutes per IP, counting successful logins as well.
       security: []
       requestBody:
         required: true
@@ -86,33 +207,73 @@ paths:
                 email: { type: string, format: email, example: admin@movie.local }
                 password: { type: string, example: Password123! }
       responses:
-        '200': { description: Login successful }
-        '401': { description: Invalid credentials }
+        '200':
+          description: Logged in
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+              example: accessToken=<jwt>; HttpOnly; SameSite=Strict; Max-Age=604800
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401':
+          description: Wrong email or password
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: InvalidCredentials, message: Invalid email or password }
+        '429':
+          description: Login rate limit exceeded
+          headers:
+            Retry-After:
+              schema: { type: integer }
+              description: Seconds left in the current rate limit window
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: TooManyRequests }
 
   /api/auth/logout:
     post:
       tags: [Auth]
-      summary: Logout
+      summary: Log out — clears the cookie and revokes the token
+      description: |
+        The token is blacklisted in Redis until its natural expiry,
+        so the old cookie stops working even though its signature is still valid.
       security: []
       responses:
-        '200': { description: Logout successful }
+        '200': { description: Logged out }
 
   /api/movies:
     get:
       tags: [Movies]
-      summary: List movies (ADMIN)
+      summary: List movies
+      security: []
       parameters:
-        - { name: page, in: query, schema: { type: integer, default: 1 } }
-        - { name: limit, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
         - { name: genreId, in: query, schema: { type: string, format: uuid } }
-        - { name: search, in: query, schema: { type: string }, example: godfather }
+        - { name: search, in: query, description: 'Case-insensitive match on title', schema: { type: string }, example: godfather }
+        - { name: orderBy, in: query, description: Ordered by creation time, schema: { type: string, enum: [asc, desc], default: desc } }
       responses:
-        '200': { description: OK }
-        '401': { description: Unauthorized }
-        '403': { description: Forbidden }
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data:
+                    allOf:
+                      - $ref: '#/components/schemas/Pagination'
+                      - type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/Movie' }
+        '400': { $ref: '#/components/responses/BadRequest' }
     post:
       tags: [Movies]
-      summary: Create movie (ADMIN)
+      summary: Create a movie (ADMIN)
       requestBody:
         required: true
         content:
@@ -124,23 +285,53 @@ paths:
                 title: { type: string, example: Blade Runner 2049 }
                 description: { type: string, example: A young blade runner uncovers a secret that could tip the balance of society. }
                 genreId: { type: string, format: uuid }
-                poster: { type: string, format: binary }
+                poster: { type: string, format: binary, description: 'jpeg/png/gif, up to 10MB' }
       responses:
-        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Movie' } } } }
-        '400': { description: Poster image is required }
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data: { $ref: '#/components/schemas/Movie' }
+        '400':
+          description: '`PosterRequired`, `GenreNotFound` (genre missing or soft-deleted), `UploadError`, or `ValidationError`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: PosterRequired, message: Poster image is required }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /api/movies/{id}:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
     get:
       tags: [Movies]
-      summary: Get movie by id (ADMIN)
+      summary: Get a movie
+      security: []
       responses:
-        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Movie' } } } }
-        '404': { description: MovieNotFound }
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data: { $ref: '#/components/schemas/Movie' }
+        '404':
+          description: MovieNotFound
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: MovieNotFound }
     put:
       tags: [Movies]
-      summary: Update movie (ADMIN) - at least one field or a poster
+      summary: Update a movie (ADMIN) — at least one field or a poster
+      description: When the poster changes, the previous file is deleted from disk after a successful update.
       requestBody:
         content:
           multipart/form-data:
@@ -152,30 +343,64 @@ paths:
                 genreId: { type: string, format: uuid }
                 poster: { type: string, format: binary }
       responses:
-        '200': { description: Updated }
-        '400': { description: Nothing to update }
-        '404': { description: MovieNotFound }
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data: { $ref: '#/components/schemas/Movie' }
+        '400':
+          description: '`EmptyUpdate` or `GenreNotFound`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: EmptyUpdate, message: At least one field or a poster is required }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [Movies]
-      summary: Soft-delete movie (ADMIN)
+      summary: Soft-delete a movie (ADMIN)
       responses:
         '200': { description: Deleted }
-        '404': { description: MovieNotFound }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /api/genres:
     get:
       tags: [Genres]
       summary: List genres
+      security: []
       parameters:
-        - { name: page, in: query, schema: { type: integer, default: 1 } }
-        - { name: limit, in: query, schema: { type: integer, default: 20, maximum: 100 } }
-        - { name: orderBy, in: query, schema: { type: string, enum: [asc, desc], default: desc } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { name: orderBy, in: query, description: Ordered by name, schema: { type: string, enum: [asc, desc], default: desc } }
       responses:
-        '200': { description: OK }
-        '401': { description: Unauthorized }
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data:
+                    allOf:
+                      - $ref: '#/components/schemas/Pagination'
+                      - type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/Genre' }
+        '400': { $ref: '#/components/responses/BadRequest' }
     post:
       tags: [Genres]
-      summary: Create genre (ADMIN)
+      summary: Create a genre (ADMIN)
+      description: If the name matches a soft-deleted genre, that genre is restored instead of returning an error.
       requestBody:
         required: true
         content:
@@ -186,22 +411,46 @@ paths:
               properties:
                 name: { type: string, example: Documentary }
       responses:
-        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Genre' } } } }
-        '403': { description: Forbidden }
-        '409': { description: GenreAlreadyExists }
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data: { $ref: '#/components/schemas/Genre' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: GenreAlreadyExists
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: GenreAlreadyExists }
 
   /api/genres/{id}:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
     get:
       tags: [Genres]
-      summary: Get genre by id
+      summary: Get a genre
+      security: []
       responses:
-        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Genre' } } } }
-        '404': { description: GenreNotFound }
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data: { $ref: '#/components/schemas/Genre' }
+        '404': { $ref: '#/components/responses/NotFound' }
     put:
       tags: [Genres]
-      summary: Update genre (ADMIN)
+      summary: Rename a genre (ADMIN)
       requestBody:
         required: true
         content:
@@ -213,22 +462,337 @@ paths:
                 name: { type: string, example: Docu-drama }
       responses:
         '200': { description: Updated }
-        '404': { description: GenreNotFound }
-        '409': { description: AlreadyExists }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: GenreAlreadyExists
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
     delete:
       tags: [Genres]
-      summary: Soft-delete genre (ADMIN)
+      summary: Soft-delete a genre (ADMIN)
+      description: Refused while any non-deleted movie still uses this genre.
       responses:
         '200': { description: Deleted }
-        '404': { description: GenreNotFound }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: GenreInUse
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: GenreInUse, message: 3 movie(s) still use this genre }
+
+  /api/theaters:
+    get:
+      tags: [Theaters]
+      summary: List theaters
+      security: []
+      parameters:
+        - { name: name, in: query, description: 'Case-insensitive match on name', schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 10 } }
+        - { name: orderBy, in: query, description: Ordered by name, schema: { type: string, enum: [asc, desc], default: asc } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data:
+                    allOf:
+                      - $ref: '#/components/schemas/Pagination'
+                      - type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/Theater' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+    post:
+      tags: [Theaters]
+      summary: Create a theater (ADMIN)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, example: Cinema 1 }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data: { $ref: '#/components/schemas/Theater' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: TheaterAlreadyExists
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: TheaterAlreadyExists }
+
+  /api/theaters/{theaterId}:
+    parameters:
+      - { name: theaterId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Theaters]
+      summary: Get a theater
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data: { $ref: '#/components/schemas/Theater' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/theaters/{theaterId}/layout:
+    parameters:
+      - { name: theaterId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Theaters]
+      summary: Replace a theater's seat layout (ADMIN)
+      description: |
+        Deletes every existing seat and recreates them from `rows`, inside a single transaction.
+        Each row produces seats numbered 1..seatCount; a seat inside an `overrides` range takes that override's `type`, otherwise it takes `defaultType`.
+        Override ranges must not overlap and must not exceed `seatCount`; row names must be unique.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rows]
+              properties:
+                rows:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [name, seatCount]
+                    properties:
+                      name: { type: string, description: Upper-cased automatically, example: A }
+                      seatCount: { type: integer, minimum: 1, maximum: 100, example: 10 }
+                      defaultType: { type: string, enum: [REGULAR, VIP], default: REGULAR }
+                      overrides:
+                        type: array
+                        default: []
+                        items:
+                          type: object
+                          required: [from, to, type]
+                          properties:
+                            from: { type: integer, minimum: 1, example: 8 }
+                            to: { type: integer, minimum: 1, example: 10 }
+                            type: { type: string, enum: [REGULAR, VIP] }
+            example:
+              rows:
+                - { name: A, seatCount: 10, overrides: [{ from: 8, to: 10, type: VIP }] }
+                - { name: B, seatCount: 12, defaultType: VIP }
+      responses:
+        '201':
+          description: The seat layout after the replacement
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Seat' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/showtimes:
+    get:
+      tags: [Showtimes]
+      summary: List showtimes
+      security: []
+      parameters:
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { name: movieId, in: query, schema: { type: string, format: uuid } }
+        - { name: theaterId, in: query, schema: { type: string, format: uuid } }
+        - { name: from, in: query, description: 'startsAt >= from; accepts YYYY-MM-DD or an ISO date-time', schema: { type: string }, example: '2026-10-01' }
+        - { name: to, in: query, description: 'startsAt <= to; accepts YYYY-MM-DD or an ISO date-time', schema: { type: string }, example: '2026-10-31' }
+        - { name: orderBy, in: query, description: Ordered by startsAt, schema: { type: string, enum: [asc, desc], default: asc } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data:
+                    allOf:
+                      - $ref: '#/components/schemas/Pagination'
+                      - type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/Showtime' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+    post:
+      tags: [Showtimes]
+      summary: Create a showtime (ADMIN)
+      description: A theater cannot have two showtimes with the same start time.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [movieId, theaterId, startsAt, price]
+              properties:
+                movieId: { type: string, format: uuid }
+                theaterId: { type: string, format: uuid }
+                startsAt: { type: string, format: date-time, example: '2026-10-01T19:00:00Z' }
+                price: { type: number, minimum: 0, exclusiveMinimum: true, example: 95000 }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data: { $ref: '#/components/schemas/Showtime' }
+        '400':
+          description: '`MovieNotFound` or `TheaterNotFound` (missing or soft-deleted)'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: MovieNotFound }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: ShowtimeConflict — the theater already has a showtime at this exact start time
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: ShowtimeConflict }
+
+  /api/showtimes/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Showtimes]
+      summary: Get a showtime
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data: { $ref: '#/components/schemas/Showtime' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Showtimes]
+      summary: Update a showtime (ADMIN) — at least one field
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                movieId: { type: string, format: uuid }
+                theaterId: { type: string, format: uuid }
+                startsAt: { type: string, format: date-time }
+                price: { type: number, example: 120000 }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data: { $ref: '#/components/schemas/Showtime' }
+        '400':
+          description: '`EmptyUpdate`, `MovieNotFound` or `TheaterNotFound`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: EmptyUpdate, message: At least one field is required }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: ShowtimeConflict
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    delete:
+      tags: [Showtimes]
+      summary: Delete a showtime (ADMIN)
+      description: A hard delete, not a soft delete. Refused once the showtime has reservations.
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data: { $ref: '#/components/schemas/Showtime' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: ShowtimeHasReservations
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: ShowtimeHasReservations, message: 2 reservation(s) already booked }
 
   /api/image/{filename}:
     get:
       tags: [Misc]
-      summary: Serve uploaded image
+      summary: Serve an uploaded image
       security: []
       parameters:
         - { name: filename, in: path, required: true, schema: { type: string }, example: poster-1234567890-123456789.jpg }
       responses:
-        '200': { description: Image }
-        '404': { description: Image not found }
+        '200':
+          description: The image
+          content:
+            image/*:
+              schema: { type: string, format: binary }
+        '404':
+          description: Image not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: Image not found }

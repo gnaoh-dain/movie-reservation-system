@@ -1,11 +1,23 @@
 import 'dotenv/config';
 import { z } from 'zod';
 
+const csv = (defaults: string) =>
+  z
+    .string()
+    .default(defaults)
+    .transform((value) =>
+      value
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean),
+    );
+
 const parsed = z
   .object({
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
     PORT: z.coerce.number().int().positive().default(3000),
     APP_URL: z.url().optional(),
+    CORS_ORIGINS: csv('http://localhost:5173'),
 
     DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
     REDIS_URL: z.url({ protocol: /^redis$/ }).default('redis://localhost:6379'),
@@ -17,7 +29,7 @@ const parsed = z
       .int()
       .positive()
       .default(10 * 1024 * 1024), // 10MB
-    UPLOAD_ALLOWED_FILE_TYPES: z.array(z.string()).default(['image/jpeg', 'image/png', 'image/gif']),
+    UPLOAD_ALLOWED_FILE_TYPES: csv('image/jpeg,image/png,image/gif'),
   })
   .safeParse(process.env);
 
@@ -33,6 +45,7 @@ export const env = {
   nodeEnv: data.NODE_ENV,
   port: data.PORT,
   appUrl: (data.APP_URL ?? `http://localhost:${data.PORT}`).replace(/\/+$/, ''),
+  corsOrigins: data.CORS_ORIGINS,
   databaseUrl: data.DATABASE_URL,
   redisUrl: data.REDIS_URL,
   jwtSecret: data.JWT_SECRET,

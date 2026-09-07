@@ -3,6 +3,7 @@ import multer from 'multer';
 import type { ErrorRequestHandler, RequestHandler } from 'express';
 import { ZodError } from 'zod';
 import { Prisma } from '../generated/prisma/client';
+import { AppError } from '../utils/appError';
 
 export const cleanupUploads: RequestHandler = (req, res, next) => {
   res.on('finish', () => {
@@ -14,7 +15,14 @@ export const cleanupUploads: RequestHandler = (req, res, next) => {
 };
 
 export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
-  console.error(err);
+  if (!(err instanceof AppError)) console.error(err);
+
+  if (err instanceof AppError) {
+    return res.status(err.status).json({
+      error: err.code,
+      ...(err.message === err.code ? {} : { message: err.message }),
+    });
+  }
 
   if (err instanceof multer.MulterError) return res.status(400).json({ error: 'UploadError', message: err.message });
   if (err instanceof ZodError) return res.status(400).json({ error: 'ValidationError', issues: err.issues });

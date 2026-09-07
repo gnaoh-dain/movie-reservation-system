@@ -1,7 +1,8 @@
 import { Server } from 'http';
 import { app } from './app';
 import { env } from './configs/env';
-import { connectRedis } from './configs/redis';
+import { connectRedis, redis } from './configs/redis';
+import { prisma } from './configs/db';
 
 let server: Server;
 
@@ -19,14 +20,21 @@ async function startServer() {
 
 startServer();
 
-process.on('SIGINT', () => {
-  console.log('Received SIGINT. Shutting down gracefully...');
-  if (server) {
-    server.close(() => {
-      console.log('Server closed.');
-      process.exit(0);
+async function shutdown(signal: string) {
+  console.log(`Received ${signal}. Shutting down gracefully...`);
+  if (server) await new Promise((resolve) => server.close(resolve));
+
+  await Promise.allSettled([redis.quit(), prisma.$disconnect()]);
+
+  console.log('Server closed.');
+  process.exit(0);
+}
+
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(signal, () => {
+    shutdown(signal).catch((error) => {
+      console.error('Error during shutdown:', error);
+      process.exit(1);
     });
-  } else {
-    process.exit(0);
-  }
-});
+  });
+}

@@ -12,6 +12,11 @@ enum Role {
   ADMIN
 }
 
+enum SEAT_TYPE {
+  REGULAR
+  VIP
+}
+
 model User {
   id           String        @id @default(uuid(7)) @db.Uuid
   email        String        @unique
@@ -56,6 +61,7 @@ model Seat {
   theater   Theater           @relation(fields: [theaterId], references: [id])
   row       String
   number    Int
+  type      SEAT_TYPE
   seats     ReservationSeat[]
 
   @@unique([theaterId, row, number])

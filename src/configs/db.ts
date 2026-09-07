@@ -1,5 +1,5 @@
 import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient } from '../generated/prisma/client';
+import { Prisma, PrismaClient } from '../generated/prisma/client';
 import { env } from './env';
 import { imageUrl } from './upload';
 
@@ -15,3 +15,6 @@ export const prisma = new PrismaClient({
     },
   },
 });
+
+export const isUniqueViolation = (error: unknown) =>
+  error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';

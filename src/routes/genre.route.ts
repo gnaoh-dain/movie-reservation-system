@@ -7,22 +7,24 @@ import { listGenres, getGenreById, createGenre, updateGenre, deleteGenre } from 
 
 const router = Router();
 
-router.get('/', requireAuth, validate({ query: listGenresQuery }), async (req, res) => {
-  const data = await listGenres(req.query);
+router.get('/', validate({ query: listGenresQuery }), async (req, res) => {
+  const { page, limit, orderBy } = req.query;
+
+  const data = await listGenres({ page, limit, orderBy });
   return res.status(200).json({ message: 'Genres fetched successfully', data });
 });
 
-router.get('/:id', requireAuth, validate({ params: genreParams }), async (req, res) => {
-  const data = await getGenreById(req.params.id);
-  if (!data) return res.status(404).json({ error: 'GenreNotFound' });
+router.get('/:id', validate({ params: genreParams }), async (req, res) => {
+  const { id } = req.params;
 
+  const data = await getGenreById(id);
   return res.status(200).json({ message: 'Genre fetched successfully', data });
 });
 
 router.post('/', requireAuth, requireRole(Role.ADMIN), validate({ body: genreBody }), async (req, res) => {
-  const data = await createGenre(req.body.name);
-  if (!data) return res.status(409).json({ error: 'GenreAlreadyExists' });
+  const { name } = req.body;
 
+  const data = await createGenre(name);
   return res.status(201).json({ message: 'Genre created successfully', data });
 });
 
@@ -32,17 +34,18 @@ router.put(
   requireRole(Role.ADMIN),
   validate({ params: genreParams, body: genreBody }),
   async (req, res) => {
-    const data = await updateGenre(req.params.id, req.body.name);
-    if (!data) return res.status(404).json({ error: 'GenreNotFound' });
+    const { id } = req.params;
+    const { name } = req.body;
 
+    const data = await updateGenre(id, name);
     return res.status(200).json({ message: 'Genre updated successfully', data });
   },
 );
 
 router.delete('/:id', requireAuth, requireRole(Role.ADMIN), validate({ params: genreParams }), async (req, res) => {
-  const data = await deleteGenre(req.params.id);
-  if (!data) return res.status(404).json({ error: 'GenreNotFound' });
+  const { id } = req.params;
 
+  const data = await deleteGenre(id);
   return res.status(200).json({ message: 'Genre deleted successfully', data });
 });
 

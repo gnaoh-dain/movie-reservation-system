@@ -1,5 +1,4 @@
 import z from 'zod';
-import type { NoUndefined } from './index';
 
 const movieParams = z.object({
   id: z.uuid({ message: 'Invalid movie ID' }),
@@ -10,7 +9,16 @@ const listMoviesQuery = z.object({
   limit: z.coerce.number().int().positive().max(100).default(20),
   genreId: z.uuid({ message: 'Invalid genre ID' }).optional(),
   search: z.string().trim().min(1).optional(),
+  orderBy: z.enum(['asc', 'desc']).default('desc'),
 });
+
+type ListMoviesParams = {
+  page: number;
+  limit: number;
+  genreId: string | undefined;
+  search: string | undefined;
+  orderBy: 'asc' | 'desc';
+};
 
 const createMovieBody = z.object({
   title: z.string().trim().min(1, { message: 'Title is required' }),
@@ -20,9 +28,18 @@ const createMovieBody = z.object({
 
 const updateMovieBody = createMovieBody.partial();
 
-type ListMoviesQuery = NoUndefined<z.infer<typeof listMoviesQuery>>;
-type CreateMovieInput = NoUndefined<z.infer<typeof createMovieBody>>;
-type UpdateMovieInput = NoUndefined<z.infer<typeof updateMovieBody>>;
+type CreateMovieParams = {
+  title: string;
+  description: string;
+  genreId: string;
+  posterImageId: string | undefined;
+};
+
+type UpdateMovieParams = {
+  title: string | undefined;
+  description: string | undefined;
+  genreId: string | undefined;
+};
 
 export { movieParams, listMoviesQuery, createMovieBody, updateMovieBody };
-export type { ListMoviesQuery, CreateMovieInput, UpdateMovieInput };
+export type { ListMoviesParams, CreateMovieParams, UpdateMovieParams };

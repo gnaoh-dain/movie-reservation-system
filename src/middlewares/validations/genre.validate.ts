@@ -1,5 +1,4 @@
 import z from 'zod';
-import type { NoUndefined } from './index';
 
 const genreParams = z.object({
   id: z.uuid({ message: 'Invalid genre ID' }),
@@ -11,13 +10,15 @@ const listGenresQuery = z.object({
   orderBy: z.enum(['asc', 'desc']).default('desc'),
 });
 
+type ListGenresParams = {
+  page: number;
+  limit: number;
+  orderBy: 'asc' | 'desc';
+};
+
 const genreBody = z.object({
   name: z.string().trim().min(1, { message: 'Name is required' }),
 });
 
-type ListGenresQuery = NoUndefined<z.infer<typeof listGenresQuery>>;
-type GenreParams = NoUndefined<z.infer<typeof genreParams>>;
-type GenreBody = NoUndefined<z.infer<typeof genreBody>>;
-
 export { genreParams, listGenresQuery, genreBody };
-export type { ListGenresQuery, GenreParams, GenreBody };
+export type { ListGenresParams };

@@ -98,7 +98,6 @@ async function main() {
     genreIds.set(name, genre.id);
   }
 
-  // ponytail: idempotent by skipping when movies already exist; use `pnpm db:reset` to start over.
   if ((await prisma.movie.count()) > 0) {
     console.log('Movies already seeded, skipping.');
     return;

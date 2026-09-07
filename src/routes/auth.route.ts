@@ -1,73 +1,40 @@
 import { Router } from 'express';
-import { verifyPassword } from '../utils/hash';
-import { findUserByEmail, createUser } from '../services/auth.service';
-import { signToken } from '../utils/jwt';
+import { registerUser, authenticate } from '../services/auth.service';
+import { signToken, verifyToken } from '../utils/jwt';
+import { revokeToken } from '../utils/tokenBlacklist';
+import { ACCESS_TOKEN_COOKIE, accessTokenMaxAge, cookieOptions } from '../configs/cookie';
 import { validate } from '../middlewares/validations';
+import { rateLimit } from '../middlewares/rateLimit';
+import { loginBody, registerBody } from '../middlewares/validations/auth.validate';
 
 const router = Router();
 
-import { loginBody, registerBody } from '../middlewares/validations/auth.validate';
+const loginRateLimit = rateLimit({ keyPrefix: 'login', limit: 5, windowSeconds: 15 * 60 });
 
 router.post('/register', validate({ body: registerBody }), async (req, res) => {
-  try {
-    const { email, password, confirmPassword } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Missing email or password' });
-    }
+  const { email, password } = req.body;
 
-    if (password !== confirmPassword) {
-      return res.status(400).json({ error: 'Passwords do not match' });
-    }
-
-    const existingUser = await findUserByEmail(email);
-
-    if (existingUser) {
-      return res.status(400).json({ error: 'User already exists' });
-    }
-
-    const data = await createUser(email, password);
-
-    return res.status(201).json({ message: 'User registered successfully', data });
-  } catch (error) {
-    console.error(error);
-    throw error;
-  }
+  const data = await registerUser(email, password);
+  return res.status(201).json({ message: 'User registered successfully', data });
 });
 
-router.post('/login', validate({ body: loginBody }), async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Missing email or password' });
-    }
+router.post('/login', loginRateLimit, validate({ body: loginBody }), async (req, res) => {
+  const { email, password } = req.body;
 
-    const user = await findUserByEmail(email);
-    if (!user) return res.status(401).json({ error: 'Invalid email or password' });
+  const user = await authenticate(email, password);
 
-    const isMatchingPassword = await verifyPassword(password, user?.passwordHash);
-    if (!isMatchingPassword) return res.status(401).json({ error: 'Invalid email or password' });
+  const accessToken = signToken({ userId: user.id, role: user.role });
+  res.cookie(ACCESS_TOKEN_COOKIE, accessToken, { ...cookieOptions, maxAge: accessTokenMaxAge });
 
-    const accessToken = signToken({ userId: user.id, role: user.role });
-    res.cookie('accessToken', accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    });
-
-    return res.status(200).json({ message: 'Login successful', data: null });
-  } catch (error) {
-    console.error(error);
-    throw error;
-  }
+  return res.status(200).json({ message: 'Login successful', data: null });
 });
 
-router.post('/logout', (req, res) => {
-  res.clearCookie('accessToken', {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
-  });
+router.post('/logout', async (req, res) => {
+  const token = req.cookies?.[ACCESS_TOKEN_COOKIE];
+  const payload = token ? verifyToken(token) : null;
+  if (payload) await revokeToken(payload);
+
+  res.clearCookie(ACCESS_TOKEN_COOKIE, cookieOptions);
   return res.status(200).json({ message: 'Logout successful', data: null });
 });
 

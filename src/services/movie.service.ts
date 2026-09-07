@@ -2,14 +2,14 @@ import { unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { prisma } from '../configs/db';
 import { uploadDir } from '../configs/upload';
-import type { ListMoviesQuery, CreateMovieInput, UpdateMovieInput } from '../middlewares/validations/movie.validate';
+import { AppError } from '../utils/appError';
+import { findGenreById } from './genre.service';
+import type { ListMoviesParams, CreateMovieParams, UpdateMovieParams } from '../middlewares/validations/movie.validate';
 
 const include = { genre: true } as const;
 const alive = { deletedAt: null };
 
-type CreateMovieData = CreateMovieInput & { posterImageId: string | null };
-
-export const listMovies = async ({ page, limit, genreId, search }: ListMoviesQuery) => {
+export const listMovies = async ({ page, limit, genreId, search, orderBy }: ListMoviesParams) => {
   const where = {
     ...alive,
     ...(genreId ? { genreId } : {}),
@@ -17,26 +17,57 @@ export const listMovies = async ({ page, limit, genreId, search }: ListMoviesQue
   };
 
   const [items, total] = await Promise.all([
-    prisma.movie.findMany({ where, include, orderBy: { id: 'desc' }, skip: (page - 1) * limit, take: limit }),
+    prisma.movie.findMany({ where, include, orderBy: { id: orderBy }, skip: (page - 1) * limit, take: limit }),
     prisma.movie.count({ where }),
   ]);
 
   return { items, page, limit, total, totalPages: Math.ceil(total / limit) };
 };
 
-export const getMovieById = (id: string) => prisma.movie.findFirst({ where: { id, ...alive }, include });
+export const findMovieById = (id: string) => prisma.movie.findFirst({ where: { id, ...alive }, include });
 
-export const createMovie = (data: CreateMovieData) => prisma.movie.create({ data, include });
+export const getMovieById = async (id: string) => {
+  const movie = await findMovieById(id);
+  if (!movie) throw new AppError(404, 'MovieNotFound');
 
-export const updateMovie = async (id: string, data: UpdateMovieInput, posterImageId?: string) => {
+  return movie;
+};
+
+const assertGenreExists = async (genreId: string) => {
+  const genre = await findGenreById(genreId);
+  if (!genre) throw new AppError(400, 'GenreNotFound');
+};
+
+export const createMovie = async ({ title, description, genreId, posterImageId }: CreateMovieParams) => {
+  if (!posterImageId) throw new AppError(400, 'PosterRequired', 'Poster image is required');
+
+  await assertGenreExists(genreId);
+
+  return prisma.movie.create({ data: { title, description, genreId, posterImageId }, include });
+};
+
+export const updateMovie = async (
+  id: string,
+  { title, description, genreId }: UpdateMovieParams,
+  posterImageId?: string,
+) => {
+  if (!title && !description && !genreId && !posterImageId) {
+    throw new AppError(400, 'EmptyUpdate', 'At least one field or a poster is required');
+  }
+
   const current = await prisma.movie.findFirst({ where: { id, ...alive }, select: { posterImageId: true } });
-  if (!current) return null;
+  if (!current) throw new AppError(404, 'MovieNotFound');
 
-  const movie = await prisma.movie.update({
-    where: { id },
-    data: posterImageId ? { ...data, posterImageId } : data,
-    include,
-  });
+  if (genreId) await assertGenreExists(genreId);
+
+  const data = {
+    ...(title ? { title } : {}),
+    ...(description ? { description } : {}),
+    ...(genreId ? { genreId } : {}),
+    ...(posterImageId ? { posterImageId } : {}),
+  };
+
+  const movie = await prisma.movie.update({ where: { id }, data, include });
 
   if (posterImageId && current.posterImageId) {
     await unlink(path.join(uploadDir, current.posterImageId)).catch(() => {});
@@ -46,8 +77,7 @@ export const updateMovie = async (id: string, data: UpdateMovieInput, posterImag
 };
 
 export const deleteMovie = async (id: string) => {
-  const { count } = await prisma.movie.updateMany({ where: { id, ...alive }, data: { deletedAt: new Date() } });
-  if (count === 0) return null;
+  await getMovieById(id);
 
-  return prisma.movie.findUniqueOrThrow({ where: { id }, include });
+  return prisma.movie.update({ where: { id }, data: { deletedAt: new Date() }, include });
 };

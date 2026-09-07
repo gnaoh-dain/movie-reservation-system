@@ -1,5 +1,4 @@
 import z from 'zod';
-import type { NoUndefined } from './index';
 
 const loginBody = z.object({
   email: z.email({ message: 'Invalid email address' }),
@@ -16,8 +15,4 @@ const registerBody = z
     message: 'Passwords do not match',
   });
 
-type LoginBody = NoUndefined<z.infer<typeof loginBody>>;
-type RegisterBody = NoUndefined<z.infer<typeof registerBody>>;
-
 export { loginBody, registerBody };
-export type { LoginBody, RegisterBody };
