@@ -2,10 +2,13 @@ import { Router } from 'express';
 import { verifyPassword } from '../utils/hash';
 import { findUserByEmail, createUser } from '../services/auth.service';
 import { signToken } from '../utils/jwt';
+import { validate } from '../middlewares/validations';
 
 const router = Router();
 
-router.post('/register', async (req, res) => {
+import { loginBody, registerBody } from '../middlewares/validations/auth.validate';
+
+router.post('/register', validate({ body: registerBody }), async (req, res) => {
   try {
     const { email, password, confirmPassword } = req.body;
     if (!email || !password) {
@@ -31,7 +34,7 @@ router.post('/register', async (req, res) => {
   }
 });
 
-router.post('/login', async (req, res) => {
+router.post('/login', validate({ body: loginBody }), async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) {

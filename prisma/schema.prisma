@@ -22,9 +22,12 @@ model User {
 }
 
 model Genre {
-  id     String  @id @default(uuid(7)) @db.Uuid
-  name   String  @unique
-  movies Movie[]
+  id        String    @id @default(uuid(7)) @db.Uuid
+  name      String    @unique
+  movies    Movie[]
+  deletedAt DateTime?
+
+  @@index([deletedAt])
 }
 
 model Movie {

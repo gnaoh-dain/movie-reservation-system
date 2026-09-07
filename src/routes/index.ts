@@ -1,12 +1,14 @@
 import { Router } from 'express';
 import authRouter from './auth.route';
 import movieRouter from './movie.route';
+import genreRouter from './genre.route';
 import { uploadDir } from '../configs/upload';
 
 const router = Router();
 
 router.use('/auth', authRouter);
 router.use('/movies', movieRouter);
+router.use('/genres', genreRouter);
 
 router.get('/image/:filename', (req, res) => {
   const { filename } = req.params;
