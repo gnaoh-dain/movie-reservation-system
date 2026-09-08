@@ -1,5 +1,6 @@
 import { prisma, isUniqueViolation } from '../configs/db';
 import { Prisma } from '../generated/prisma/client';
+import { SEAT_TYPE } from '../generated/prisma/enums';
 import { AppError } from '../utils/appError';
 import type { LayoutBody, ListTheatersParams } from '../middlewares/validations/theater.validate';
 
@@ -14,7 +15,8 @@ export const listTheaters = async ({ name, page, limit, orderBy }: ListTheatersP
   return { items, page, limit, total, totalPages: Math.ceil(total / limit) };
 };
 
-export const findTheaterById = (id: string) => prisma.theater.findUnique({ where: { id } });
+export const findTheaterById = (id: string) =>
+  prisma.theater.findUnique({ where: { id }, select: { id: true, name: true, showtimes: true, seats: true } });
 
 export const getTheaterById = async (id: string) => {
   const theater = await findTheaterById(id);
@@ -35,6 +37,17 @@ export const createTheater = async (name: string) => {
   }
 };
 
+export const updateTheater = async (id: string, name: string) => {
+  await getTheaterById(id);
+
+  try {
+    return await prisma.theater.update({ where: { id }, data: { name } });
+  } catch (error) {
+    if (isUniqueViolation(error)) throw new AppError(409, 'TheaterAlreadyExists');
+    throw error;
+  }
+};
+
 export const replaceLayout = async (theaterId: string, rows: LayoutBody['rows']) => {
   await getTheaterById(theaterId);
 
@@ -48,8 +61,22 @@ export const replaceLayout = async (theaterId: string, rows: LayoutBody['rows'])
   );
 
   return prisma.$transaction(async (tx) => {
-    await tx.seat.deleteMany({ where: { theaterId } });
-    await tx.seat.createMany({ data: seats });
+    const existing = await tx.seat.findMany({
+      where: { theaterId },
+      select: { id: true, row: true, number: true, _count: { select: { seats: true } } },
+    });
+
+    const wanted = new Set(seats.map(({ row, number }) => `${row}/${number}`));
+    const doomed = existing.filter(({ row, number }) => !wanted.has(`${row}/${number}`));
+    if (doomed.some((seat) => seat._count.seats > 0)) throw new AppError(409, 'SeatsInUse');
+
+    await tx.seat.deleteMany({ where: { id: { in: doomed.map((seat) => seat.id) } } });
+    await tx.seat.createMany({ data: seats, skipDuplicates: true });
+
+    for (const type of Object.values(SEAT_TYPE)) {
+      const rows = seats.filter((seat) => seat.type === type).map(({ row, number }) => ({ row, number }));
+      if (rows.length) await tx.seat.updateMany({ where: { theaterId, OR: rows }, data: { type } });
+    }
 
     return tx.seat.findMany({ where: { theaterId }, orderBy: [{ row: 'asc' }, { number: 'asc' }] });
   });

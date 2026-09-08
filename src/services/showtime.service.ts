@@ -37,6 +37,29 @@ export const getShowtimeById = async (id: string) => {
   return showtime;
 };
 
+export const getSeatsByShowtimeId = async (showtimeId: string) => {
+  const showtime = await findShowtimeById(showtimeId);
+  if (!showtime) throw new AppError(404, 'ShowtimeNotFound');
+
+  const [seats, taken] = await Promise.all([
+    prisma.seat.findMany({
+      where: { theaterId: showtime.theaterId },
+      select: { id: true, row: true, number: true, type: true },
+      orderBy: [{ row: 'asc' }, { number: 'asc' }],
+    }),
+    prisma.reservationSeat.findMany({ where: { showtimeId }, select: { seatId: true } }),
+  ]);
+
+  const reserved = new Set(taken.map(({ seatId }) => seatId));
+
+  return {
+    theater: showtime.theater,
+    movie: showtime.movie,
+    showtime: showtime.startsAt,
+    seats: seats.map((seat) => ({ ...seat, reserved: reserved.has(seat.id) })),
+  };
+};
+
 const countReservations = (showtimeId: string) => prisma.reservation.count({ where: { showtimeId } });
 
 const assertMovieAndTheaterExist = async (movieId: string, theaterId: string) => {
